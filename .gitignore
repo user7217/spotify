@@ -1,0 +1,29 @@
+# secrets / credentials — never commit
+.env
+.env.*
+.cache
+*.cache
+
+# python virtualenv (machine-specific, regenerable)
+spotify-venv/
+venv/
+.venv/
+
+# python caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# overnight build outputs (large, regenerated on the server)
+audiolens/work/
+audiolens/track_docs/
+audiolens/audio/
+*.db
+*.sqlite
+
+# os cruft
+.DS_Store
+Thumbs.db

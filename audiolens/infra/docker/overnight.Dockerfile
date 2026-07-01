@@ -1,0 +1,28 @@
+# Single self-contained image for the overnight personal build (SQLite, no
+# Postgres/Kafka/MinIO). Bundles the DSP extractor deps + yt-dlp + ffmpeg and
+# runs scripts/run_overnight.sh end to end.
+FROM python:3.11-slim
+
+WORKDIR /app
+ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PYTHONPATH=/app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ffmpeg libsndfile1 gcc g++ git \
+    && rm -rf /var/lib/apt/lists/*
+
+# DSP + ingest + clients. (No torch/essentia: run_pipeline degrades to DSP-only
+# documents when the ML stack is absent — exactly what we want for this batch.)
+RUN pip install \
+        "numpy<2" scipy librosa soundfile pyloudnorm \
+        httpx yt-dlp mutagen \
+        sqlalchemy pydantic pydantic-settings structlog cython
+# madmom sharpens tempo but needs cython at build time; optional.
+RUN pip install "madmom @ git+https://github.com/CPJKU/madmom.git" || true
+
+# Repo code (services/ + scripts/). Mounts at runtime supply data + work dir.
+COPY services /app/services
+COPY scripts  /app/scripts
+RUN chmod +x /app/scripts/run_overnight.sh
+
+# Long-running batch; no healthcheck needed. Logs to stdout (docker logs -f).
+ENTRYPOINT ["/app/scripts/run_overnight.sh"]

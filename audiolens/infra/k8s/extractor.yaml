@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audiolens-extractor
+  labels: { app: audiolens-extractor }
+spec:
+  replicas: 4
+  selector: { matchLabels: { app: audiolens-extractor } }
+  template:
+    metadata: { labels: { app: audiolens-extractor } }
+    spec:
+      containers:
+        - name: extractor
+          image: ghcr.io/OWNER/audiolens/extractor:latest
+          envFrom: [{ secretRef: { name: audiolens-env } }]
+          resources:
+            requests: { cpu: "1", memory: 2Gi }
+            limits: { cpu: "2", memory: 4Gi }
+          volumeMounts:
+            - { name: models, mountPath: /models, readOnly: true }
+      volumes:
+        - name: models
+          persistentVolumeClaim: { claimName: essentia-models }
+---
+# scale extractor on Kafka consumer lag via KEDA
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata: { name: audiolens-extractor }
+spec:
+  scaleTargetRef: { name: audiolens-extractor }
+  minReplicaCount: 1
+  maxReplicaCount: 20
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka:9092
+        consumerGroup: extractor-workers
+        topic: audiolens.analysis.jobs
+        lagThreshold: "10"

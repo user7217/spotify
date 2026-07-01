@@ -1,0 +1,27 @@
+# Overnight personal build — one container, SQLite output, runs and exits.
+#
+#   docker compose -f docker-compose.overnight.yml up --build
+#
+# Resumable: re-running `up` continues where an interrupted run stopped.
+# Outputs land in ./work on the host (catalog.db, audio/, track_docs/).
+services:
+  overnight:
+    build:
+      context: .
+      dockerfile: infra/docker/overnight.Dockerfile
+    environment:
+      SP_DATA_DIR: /data/sp_data
+      WORK_DIR:    /data/work
+      YEARS:       "2024,2025,2026"
+      TOP_N:       "all"      # heavy path covers ALL 2024-26 tracks, plays-first
+                              # (multi-night + resumable; set a number to cap)
+      CODEC:       "opus"     # small files; mp3/wav also fine
+      QPS:         "8"        # ReccoBeats feature requests/sec
+      # WORKERS:   "4"        # default = CPU count; lower to be gentle
+      # STAGES:    "ingest,reccobeats,download,analyze"  # subset to re-run a stage
+    volumes:
+      # sp_data lives at the repo ROOT (spotify/sp_data); compose runs from
+      # spotify/audiolens, so it's one level up. Change if your export is elsewhere.
+      - ../sp_data:/data/sp_data:ro   # streaming-history folder
+      - ./work:/data/work             # persistent outputs (host: audiolens/work/)
+    restart: "no"
