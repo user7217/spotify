@@ -34,7 +34,7 @@ import json
 log = logging.getLogger("audiolens.ytdlp")
 
 DURATION_TOL_S = 15        # >15s mismatch -> wrong video
-DEFAULT_CANDIDATES = 4     # search hits to try before giving up
+DEFAULT_CANDIDATES = 2     # search hits to try (fewer = fewer requests = less rate-limiting)
 
 
 def _known_duration_s(db: sqlite3.Connection, sid: str, catalog_dur_ms: int | None) -> float | None:
@@ -95,6 +95,13 @@ def _ydl_opts(audio_dir: str, codec: str, candidates: int) -> dict:
         "retries": 5,
         "extractor_retries": 3,
         "socket_timeout": 30,
+        # THROTTLING — YouTube rate-limits an IP that fires requests with no
+        # gaps ("Video unavailable... rate-limited for up to an hour"). Random
+        # sleeps between downloads + between metadata requests keep us under the
+        # radar. Tune via YTDLP_SLEEP_MIN / YTDLP_SLEEP_MAX (seconds).
+        "sleep_interval": float(os.environ.get("YTDLP_SLEEP_MIN", "3")),
+        "max_sleep_interval": float(os.environ.get("YTDLP_SLEEP_MAX", "9")),
+        "sleep_interval_requests": float(os.environ.get("YTDLP_SLEEP_REQ", "1")),
     }
     clients = os.environ.get("YTDLP_CLIENTS", "").strip()
     if clients:
