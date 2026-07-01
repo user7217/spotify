@@ -7,8 +7,15 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PYTHONPATH=/app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ffmpeg libsndfile1 gcc g++ git \
+        ffmpeg libsndfile1 gcc g++ git curl unzip ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# JavaScript runtime for yt-dlp. YouTube scrambles stream URLs with a JS
+# "signature / n" challenge; without a JS engine yt-dlp drops every format
+# ("Requested format is not available"). Deno is yt-dlp's recommended runtime.
+ENV DENO_INSTALL=/usr/local
+RUN curl -fsSL https://deno.land/install.sh | sh -s -- -y \
+    && deno --version
 
 # DSP + ingest + clients. (No torch/essentia: run_pipeline degrades to DSP-only
 # documents when the ML stack is absent — exactly what we want for this batch.)
