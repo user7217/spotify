@@ -19,6 +19,12 @@ RUN pip install \
 # madmom sharpens tempo but needs cython at build time; optional.
 RUN pip install "madmom @ git+https://github.com/CPJKU/madmom.git" || true
 
+# yt-dlp breaks whenever YouTube changes; keep it in its own late layer and
+# always pull the newest release. Bump YTDLP_REFRESH (or build --no-cache) to
+# force a fresh yt-dlp when downloads start 403ing again.
+ARG YTDLP_REFRESH=2026-07-01
+RUN pip install --upgrade --force-reinstall yt-dlp
+
 # Repo code (services/ + scripts/). Mounts at runtime supply data + work dir.
 COPY services /app/services
 COPY scripts  /app/scripts

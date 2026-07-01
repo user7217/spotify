@@ -75,7 +75,12 @@ def _primary_artist(artists_json: str) -> str:
 
 
 def _ydl_opts(audio_dir: str, codec: str, candidates: int) -> dict:
-    return {
+    # YouTube frequently 403s the default "web" client (bot/signature checks).
+    # Switching player clients is the most effective workaround; keep yt-dlp
+    # itself up to date too (the image reinstalls latest at build). Override the
+    # client list with env YTDLP_CLIENTS="tv,ios,web" if a set stops working.
+    clients = os.environ.get("YTDLP_CLIENTS", "android,ios,tv,web").split(",")
+    opts = {
         "format": "bestaudio/best",
         "outtmpl": os.path.join(audio_dir, "%(id)s.%(ext)s"),
         "noplaylist": True,
@@ -85,11 +90,19 @@ def _ydl_opts(audio_dir: str, codec: str, candidates: int) -> dict:
         "postprocessors": [
             {"key": "FFmpegExtractAudio", "preferredcodec": codec, "preferredquality": "0"},
         ],
+        "extractor_args": {"youtube": {"player_client": [c.strip() for c in clients if c.strip()]}},
         # don't fail the whole run on one bad video
         "ignoreerrors": True,
-        "retries": 3,
+        "retries": 5,
+        "extractor_retries": 3,
         "socket_timeout": 30,
     }
+    # optional: a cookies.txt (exported from a logged-in browser) bypasses most
+    # remaining bot walls. Drop it in the work dir and set YTDLP_COOKIES=/path.
+    cookies = os.environ.get("YTDLP_COOKIES")
+    if cookies and os.path.exists(cookies):
+        opts["cookiefile"] = cookies
+    return opts
 
 
 def _resolve_one(ydl, query: str, want_s: float | None) -> tuple[str, float] | None:
