@@ -75,11 +75,11 @@ def _primary_artist(artists_json: str) -> str:
 
 
 def _ydl_opts(audio_dir: str, codec: str, candidates: int) -> dict:
-    # YouTube frequently 403s the default "web" client (bot/signature checks).
-    # Switching player clients is the most effective workaround; keep yt-dlp
-    # itself up to date too (the image reinstalls latest at build). Override the
-    # client list with env YTDLP_CLIENTS="tv,ios,web" if a set stops working.
-    clients = os.environ.get("YTDLP_CLIENTS", "android,ios,tv,web").split(",")
+    # Let yt-dlp pick the player client by DEFAULT — with a JS runtime (Deno)
+    # present it auto-selects a client that returns downloadable audio
+    # (e.g. android_vr). Forcing a client list tends to *exclude* the one that
+    # works (android→SABR, ios→PO-token, tv→DRM), so only override when the
+    # user explicitly sets YTDLP_CLIENTS, e.g. YTDLP_CLIENTS="tv,web".
     opts = {
         "format": "bestaudio/best",
         "outtmpl": os.path.join(audio_dir, "%(id)s.%(ext)s"),
@@ -90,13 +90,17 @@ def _ydl_opts(audio_dir: str, codec: str, candidates: int) -> dict:
         "postprocessors": [
             {"key": "FFmpegExtractAudio", "preferredcodec": codec, "preferredquality": "0"},
         ],
-        "extractor_args": {"youtube": {"player_client": [c.strip() for c in clients if c.strip()]}},
         # don't fail the whole run on one bad video
         "ignoreerrors": True,
         "retries": 5,
         "extractor_retries": 3,
         "socket_timeout": 30,
     }
+    clients = os.environ.get("YTDLP_CLIENTS", "").strip()
+    if clients:
+        opts["extractor_args"] = {
+            "youtube": {"player_client": [c.strip() for c in clients.split(",") if c.strip()]}
+        }
     # optional: a cookies.txt (exported from a logged-in browser) bypasses most
     # remaining bot walls. Drop it in the work dir and set YTDLP_COOKIES=/path.
     cookies = os.environ.get("YTDLP_COOKIES")
