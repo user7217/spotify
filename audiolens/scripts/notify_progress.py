@@ -52,6 +52,42 @@ def _container_running(name_filter: str):
         return None
 
 
+def _classify_recent(name_filter: str, n: int = 250) -> dict:
+    """Scan the container's recent log lines and classify what's happening now:
+    throttling / age-gates / 403s / actual downloads. Returns counts + a verdict
+    so the phone push says *why* it's slow, not just that it is."""
+    empty = {"downloads": 0, "throttled": 0, "agegate": 0, "forbid": 0,
+             "unavail": 0, "verdict": ""}
+    try:
+        cid = subprocess.run(["docker", "ps", "--filter", f"name={name_filter}", "-q"],
+                             capture_output=True, text=True, timeout=15).stdout.strip()
+        cid = cid.split("\n")[0]
+        if not cid:
+            return empty
+        r = subprocess.run(["docker", "logs", "--tail", str(n), cid],
+                           capture_output=True, text=True, timeout=20)
+        log = (r.stdout or "") + (r.stderr or "")
+    except Exception:
+        return empty
+    low = log.lower()
+    d = {
+        "downloads": low.count("[download] destination") + low.count("has already been downloaded"),
+        "throttled": low.count("rate-limited") + low.count("try again later"),
+        "agegate": low.count("confirm your age"),
+        "forbid": low.count("403") + low.count("forbidden"),
+        "unavail": low.count("video unavailable"),
+    }
+    if d["throttled"] > 5:
+        d["verdict"] = "throttled by YouTube (will recover; sleeps active)"
+    elif d["forbid"] > 5:
+        d["verdict"] = "403s — check yt-dlp/Deno"
+    elif d["downloads"] > 0:
+        d["verdict"] = "downloading normally"
+    else:
+        d["verdict"] = "quiet"
+    return d
+
+
 def _fmt_eta(hours: float) -> str:
     if hours <= 0 or hours != hours:  # 0 or NaN
         return "—"
@@ -83,9 +119,13 @@ def main() -> int:
         db,
         "SELECT COUNT(*) FROM processing_state WHERE stage='document' AND status='done'",
     )
+    feat = _count(db, "SELECT COUNT(*) FROM reccobeats_features WHERE status='ok'")
 
-    # rate + ETA from the delta since last run
-    state_path = pathlib.Path(a.state or (str(a.sqlite) + ".notify_state.json"))
+    # rate + ETA from the delta since last run. Default the state file to the
+    # user's home, NOT next to the db — work/ is owned by root (the container
+    # runs as root), so a sibling file would be unwritable by the cron user.
+    default_state = os.path.join(os.path.expanduser("~"), ".audiolens_notify_state.json")
+    state_path = pathlib.Path(a.state or default_state)
     now = time.time()
     prev = {}
     if state_path.exists():
@@ -117,11 +157,21 @@ def main() -> int:
     # NB: HTTP headers are latin-1 only — no emoji in Title. ntfy renders the
     # emoji from the Tags header instead.
     stopped = running is False
-    title = f"AudioLens — {'STOPPED' if stopped else 'running'} ({phase})"
+    cls = _classify_recent(a.container) if not a.dry_run else {
+        "downloads": 5, "throttled": 118, "agegate": 12, "forbid": 0,
+        "unavail": 121, "verdict": "throttled by YouTube (will recover; sleeps active)",
+    }
+    # Title becomes an HTTP header (latin-1 only) — keep it plain ASCII.
+    title = f"AudioLens - {'STOPPED' if stopped else 'running'} ({phase})"
     body = (
         f"Downloads: {got:,}/{total:,} ({pct:.1f}%)\n"
         f"{rate_line}\n"
-        f"Failed: {failed:,}   Analyzed: {analyzed:,}"
+        f"Failed: {failed:,}   Analyzed: {analyzed:,}\n"
+        f"Features: {feat:,}\n"
+        f"— recent —\n"
+        f"state: {cls['verdict'] or '—'}\n"
+        f"dl {cls['downloads']} · throttled {cls['throttled']} · "
+        f"agegate {cls['agegate']} · 403 {cls['forbid']}"
     )
     if stopped and phase != "complete":
         body += "\n\n⚠️ container not running — re-run `up -d`"
@@ -143,7 +193,7 @@ def main() -> int:
         f"{NTFY_BASE}/{a.topic}",
         data=body.encode("utf-8"),
         headers={
-            "Title": title,
+            "Title": title.encode("ascii", "ignore").decode(),  # header = latin-1 safe
             "Priority": priority,
             "Tags": tags,
         },
