@@ -38,20 +38,41 @@ has_stage() { [[ ",${STAGES}," == *",$1,"* ]]; }
 
 # ── stage 1: scope streaming history to the chosen years, build catalog ──────
 if has_stage ingest; then
-  log "STAGE ingest — filtering history to years: ${YEARS}"
-  rm -rf "${FILTERED_DIR}"; mkdir -p "${FILTERED_DIR}"
-  IFS=',' read -ra YRS <<< "${YEARS}"
-  shopt -s nullglob
-  for f in "${SP_DATA_DIR}"/Streaming_History_Audio_*.json; do
-    base="$(basename "$f")"
-    for y in "${YRS[@]}"; do
-      if [[ "$base" == *"_${y}"*.json ]]; then ln -sf "$f" "${FILTERED_DIR}/$base"; break; fi
+  # The ingest sink uses plain INSERTs (not upserts), so re-running it against
+  # an already-built catalog fails on the UNIQUE(spotify_track_id) constraint.
+  # The catalog only needs building once; skip if it already has tracks so a
+  # fresh container (down/up) resumes straight into features/downloads without
+  # touching the existing DB (which also holds the ReccoBeats features).
+  existing=$(python - "${CATALOG}" <<'PY'
+import sqlite3, sys, os
+p = sys.argv[1]
+if not os.path.exists(p):
+    print(0); raise SystemExit
+try:
+    n = sqlite3.connect(p).execute("SELECT COUNT(*) FROM catalog_tracks").fetchone()[0]
+    print(n)
+except Exception:
+    print(0)
+PY
+)
+  if [ "${existing:-0}" -gt 0 ]; then
+    log "STAGE ingest — catalog already has ${existing} tracks, skipping (delete ${CATALOG} to rebuild from scratch)"
+  else
+    log "STAGE ingest — filtering history to years: ${YEARS}"
+    rm -rf "${FILTERED_DIR}"; mkdir -p "${FILTERED_DIR}"
+    IFS=',' read -ra YRS <<< "${YEARS}"
+    shopt -s nullglob
+    for f in "${SP_DATA_DIR}"/Streaming_History_Audio_*.json; do
+      base="$(basename "$f")"
+      for y in "${YRS[@]}"; do
+        if [[ "$base" == *"_${y}"*.json ]]; then ln -sf "$f" "${FILTERED_DIR}/$base"; break; fi
+      done
     done
-  done
-  n=$(ls -1 "${FILTERED_DIR}" | wc -l)
-  log "  linked ${n} history files"
-  python -m services.ingest.app.cli "${FILTERED_DIR}" --sqlite "${CATALOG}"
-  log "STAGE ingest — done"
+    n=$(ls -1 "${FILTERED_DIR}" | wc -l)
+    log "  linked ${n} history files"
+    python -m services.ingest.app.cli "${FILTERED_DIR}" --sqlite "${CATALOG}"
+    log "STAGE ingest — done"
+  fi
 fi
 
 # ── stage 2: cheap features for EVERY track (no download) ────────────────────
