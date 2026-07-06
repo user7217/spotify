@@ -19,8 +19,13 @@ RUN curl -fsSL https://deno.land/install.sh | sh -s -- -y \
 
 # DSP + ingest + clients. (No torch/essentia: run_pipeline degrades to DSP-only
 # documents when the ML stack is absent — exactly what we want for this batch.)
+# Pin a numpy/numba/llvmlite trio that is KNOWN ABI-compatible. Leaving numba
+# unpinned lets pip pull a build compiled against a different numpy than the
+# pinned numpy<2 — its guvectorize ufuncs then SEGFAULT (librosa chroma_cqt ->
+# piptrack). This exact trio matches librosa 0.10.x.
 RUN pip install \
-        "numpy<2" scipy librosa soundfile pyloudnorm \
+        "numpy==1.26.4" "numba==0.60.0" "llvmlite==0.43.0" \
+        "librosa==0.10.2.post1" scipy soundfile pyloudnorm \
         httpx yt-dlp mutagen \
         sqlalchemy pydantic pydantic-settings structlog cython
 # madmom sharpens tempo but needs cython at build time; optional.
