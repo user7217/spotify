@@ -15,15 +15,23 @@ log = logging.getLogger("audiolens.extractor.rhythm")
 
 EXTRACTOR_VERSION = "rhythm-v2"
 
-try:
-    from madmom.features.beats import DBNBeatTrackingProcessor, RNNBeatProcessor
-    from madmom.features.downbeats import (
-        DBNDownBeatTrackingProcessor,
-        RNNDownBeatProcessor,
-    )
-    _MADMOM = True
-except ImportError:  # pragma: no cover
+# madmom's native DBN trackers can SEGFAULT (not a catchable Python exception)
+# and are ~5x slower than the librosa baseline. Set DISABLE_MADMOM=1 to force
+# the librosa path — safer + much faster for large batch runs.
+import os as _os
+
+if _os.environ.get("DISABLE_MADMOM", "").lower() in {"1", "true", "yes"}:
     _MADMOM = False
+else:
+    try:
+        from madmom.features.beats import DBNBeatTrackingProcessor, RNNBeatProcessor
+        from madmom.features.downbeats import (
+            DBNDownBeatTrackingProcessor,
+            RNNDownBeatProcessor,
+        )
+        _MADMOM = True
+    except ImportError:  # pragma: no cover
+        _MADMOM = False
 
 
 def _madmom_beats(y: np.ndarray, sr: int) -> tuple[np.ndarray, np.ndarray]:

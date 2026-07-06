@@ -132,8 +132,12 @@ class FeatureExtractor:
         peak = tg_mean.max()
         conf = float(np.clip((peak - tg_mean.mean()) / (tg_mean.std() + 1e-8) / 5.0, 0, 1))
 
-        # madmom refinement (more accurate DBN beat tracker)
+        # madmom refinement (more accurate DBN beat tracker). Can segfault and
+        # is slow — DISABLE_MADMOM=1 skips it and keeps the librosa estimate.
         try:
+            import os as _os
+            if _os.environ.get("DISABLE_MADMOM", "").lower() in {"1", "true", "yes"}:
+                raise ImportError("madmom disabled via DISABLE_MADMOM")
             from madmom.features.beats import DBNBeatTrackingProcessor, RNNBeatProcessor
 
             act = RNNBeatProcessor()(y.astype(np.float32))

@@ -17,6 +17,8 @@ services:
                               # (multi-night + resumable; set a number to cap)
       CODEC:       "opus"     # small files; mp3/wav also fine
       QPS:         "8"        # ReccoBeats feature requests/sec
+      DISABLE_MADMOM: "1"     # madmom segfaults + is ~5x slower; use librosa beats
+      # DSP_TIMEOUT_S: "600"  # per-track analysis timeout before marking failed
       # WORKERS:   "4"        # default = CPU count; lower to be gentle
       # STAGES:    "ingest,reccobeats,download,analyze"  # subset to re-run a stage
     volumes:

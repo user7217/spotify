@@ -23,6 +23,7 @@ import argparse
 import concurrent.futures as cf
 import json
 import logging
+import os
 import pathlib
 import sqlite3
 import sys
@@ -32,16 +33,39 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 log = logging.getLogger("audiolens.pipeline")
 
 
+_DSP_TIMEOUT_S = int(os.environ.get("DSP_TIMEOUT_S", "600"))
+_DSP_HELPER = str(pathlib.Path(__file__).resolve().parent / "_dsp_one.py")
+
+
 def _analyze_one(args: tuple) -> tuple[str, dict | None, str | None]:
-    """Subprocess entry: DSP-only stages (no torch in workers)."""
+    """Run one track's DSP in an ISOLATED subprocess.
+
+    A native crash (madmom / libsndfile segfault) then only kills the helper
+    process — we see a non-zero exit and mark this single track failed, instead
+    of a pool worker dying and taking the whole run down (exit 139). stderr is
+    inherited so per-stage logs still appear in docker logs.
+    """
+    import json as _json
+    import subprocess as _sp
+    import sys as _sys
+
     track_id, audio_path = args
-    from services.extractor.app.pipeline import CorruptedAudioError, analyze_track
     try:
-        return track_id, analyze_track(audio_path), None
-    except CorruptedAudioError:
+        r = _sp.run(
+            [_sys.executable, _DSP_HELPER, audio_path],
+            stdout=_sp.PIPE, timeout=_DSP_TIMEOUT_S,
+        )
+    except _sp.TimeoutExpired:
+        return track_id, None, "dsp_timeout"
+    if r.returncode == 3:
         return track_id, None, "corrupted_audio"
+    if r.returncode != 0:
+        # 139 = SIGSEGV, 137 = OOM-kill, etc. — contained to this track.
+        return track_id, None, f"dsp_crash_exit_{r.returncode}"
+    try:
+        return track_id, _json.loads(r.stdout), None
     except Exception as e:  # noqa: BLE001
-        return track_id, None, f"{type(e).__name__}: {e}"
+        return track_id, None, f"bad_dsp_output: {type(e).__name__}: {e}"
 
 
 def _pending(db: sqlite3.Connection, limit: int | None):
