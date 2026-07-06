@@ -169,7 +169,11 @@ def main(argv=None) -> int:
         return 2
 
     pathlib.Path(a.audio_dir).mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(a.sqlite)
+    db = sqlite3.connect(a.sqlite, timeout=60)
+    # busy_timeout FIRST (so even the WAL-mode switch waits instead of erroring),
+    # then WAL so the concurrent analyzer (a second writer) doesn't collide.
+    db.execute("PRAGMA busy_timeout=60000")
+    db.execute("PRAGMA journal_mode=WAL")
     # progress/state columns already exist in catalog schema (audio_track_id,
     # audio_match_method); add a failures log table for visibility.
     db.execute("""CREATE TABLE IF NOT EXISTS download_failures (

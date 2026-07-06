@@ -82,27 +82,68 @@ if has_stage reccobeats; then
   log "STAGE reccobeats — done"
 fi
 
-# ── stage 3: download audio for the heavy path, most-played first ────────────
-# TOP_N=all (or 0/empty) -> every track, ordered by play_count so the tracks
-# that matter get done first even if the run spans several nights.
-if has_stage download; then
-  LARG=()
+# ── stages 3 & 4: download (network) + analyze (CPU) ─────────────────────────
+# When BOTH are requested they run CONCURRENTLY: downloads trickle in on the
+# network while the CPU chews through everything already on disk. The analyzer
+# loops — each pass drains all currently-analyzable tracks, then waits for more
+# downloads. SQLite is in WAL mode (set by the Python clients) so the two
+# writers don't collide. If only one stage is requested, it runs on its own.
+run_download() {
+  local LARG=()
+  if [[ -n "${TOP_N}" && "${TOP_N}" != "all" && "${TOP_N}" != "0" ]]; then LARG=(--limit "${TOP_N}"); fi
+  python "${REPO}/scripts/ytdlp_resolver.py" --sqlite "${CATALOG}" \
+      --audio-dir "${AUDIO_DIR}" --codec "${CODEC}" "${LARG[@]}"
+}
+run_analyze_once() {
+  local WARG=(); [[ -n "${WORKERS}" ]] && WARG=(--workers "${WORKERS}")
+  python "${REPO}/scripts/run_pipeline.py" --sqlite "${CATALOG}" \
+      --docs-dir "${DOCS_DIR}" "${WARG[@]}"
+}
+pending_analysis() {
+  python - "${CATALOG}" <<'PY'
+import sqlite3, sys
+try:
+    db = sqlite3.connect(sys.argv[1])
+    n = db.execute("""SELECT COUNT(*) FROM catalog_tracks c
+        WHERE c.audio_track_id IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM processing_state p
+                          WHERE p.catalog_track_id=c.id AND p.stage='document' AND p.status='done')
+    """).fetchone()[0]
+except Exception:
+    n = 0
+print(n)
+PY
+}
+
+if has_stage download && has_stage analyze; then
+  log "STAGE download+analyze — CONCURRENT (downloads + DSP together)"
+  run_download & DL_PID=$!
+  log "  download running in background (pid ${DL_PID}); analyzer draining as tracks arrive"
+  while true; do
+    run_analyze_once || true
+    if ! kill -0 "${DL_PID}" 2>/dev/null; then      # downloads finished
+      if [ "$(pending_analysis)" -eq 0 ]; then break # ...and nothing left to analyze
+      fi
+    else
+      log "  analyzer caught up; waiting ${ANALYZE_POLL:-30}s for more downloads"
+    fi
+    sleep "${ANALYZE_POLL:-30}"
+  done
+  wait "${DL_PID}" 2>/dev/null || true
+  log "STAGE download+analyze — done"
+
+elif has_stage download; then
   if [[ -n "${TOP_N}" && "${TOP_N}" != "all" && "${TOP_N}" != "0" ]]; then
-    LARG=(--limit "${TOP_N}"); log "STAGE download — top ${TOP_N} tracks via yt-dlp (codec=${CODEC})"
+    log "STAGE download — top ${TOP_N} tracks via yt-dlp (codec=${CODEC})"
   else
     log "STAGE download — ALL tracks via yt-dlp, play_count order (codec=${CODEC})"
   fi
-  python "${REPO}/scripts/ytdlp_resolver.py" --sqlite "${CATALOG}" \
-      --audio-dir "${AUDIO_DIR}" --codec "${CODEC}" "${LARG[@]}"
+  run_download
   log "STAGE download — done"
-fi
 
-# ── stage 4: full DSP analysis on everything that has audio ──────────────────
-if has_stage analyze; then
+elif has_stage analyze; then
   log "STAGE analyze — DSP documents for downloaded tracks"
-  WARG=(); [[ -n "${WORKERS}" ]] && WARG=(--workers "${WORKERS}")
-  python "${REPO}/scripts/run_pipeline.py" --sqlite "${CATALOG}" \
-      --docs-dir "${DOCS_DIR}" "${WARG[@]}"
+  run_analyze_once
   log "STAGE analyze — done"
 fi
 

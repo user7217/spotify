@@ -110,7 +110,11 @@ def main() -> int:
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
 
-    db = sqlite3.connect(a.sqlite)
+    db = sqlite3.connect(a.sqlite, timeout=60)
+    # busy_timeout FIRST (so even the WAL-mode switch waits instead of erroring),
+    # then WAL so we can run concurrently with the downloader (a second writer).
+    db.execute("PRAGMA busy_timeout=60000")
+    db.execute("PRAGMA journal_mode=WAL")
     docs_dir = pathlib.Path(a.docs_dir)
     docs_dir.mkdir(parents=True, exist_ok=True)
     audio_map = json.loads(pathlib.Path(a.audio_map).read_text()) if a.audio_map else {}
