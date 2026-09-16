@@ -86,7 +86,12 @@ def extract_low_level(y: np.ndarray, sr: int) -> dict:
     chroma = librosa.feature.chroma_cqt(y=y, sr=sr, tuning=0.0)
     # HPCP approximation: energy-weighted CENS chroma (use Essentia HPCP if present)
     hpcp = librosa.feature.chroma_cens(y=y, sr=sr, tuning=0.0)
-    tonnetz = librosa.feature.tonnetz(y=librosa.effects.harmonic(y), sr=sr)
+    # tonnetz() would internally call chroma_cqt with tuning=None ->
+    # estimate_tuning -> piptrack, whose numba gufunc segfaults here. Feed it
+    # a pre-computed tuning-pinned chroma of the harmonic component instead.
+    _y_harm = librosa.effects.harmonic(y)
+    _chroma_harm = librosa.feature.chroma_cqt(y=_y_harm, sr=sr, tuning=0.0)
+    tonnetz = librosa.feature.tonnetz(chroma=_chroma_harm, sr=sr)
     f0 = librosa.yin(y, fmin=librosa.note_to_hz("C2"), fmax=librosa.note_to_hz("C7"), sr=sr)
     voiced = f0[np.isfinite(f0)]
     pitch_hist, _ = np.histogram(
