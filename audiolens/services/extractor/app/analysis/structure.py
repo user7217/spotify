@@ -27,7 +27,7 @@ EXTRACTOR_VERSION = "structure-v2"
 
 def _segment_features(y: np.ndarray, sr: int, hop: int = 512):
     mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13, hop_length=hop)
-    chroma = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=hop)
+    chroma = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=hop, tuning=0.0)
     rms = librosa.feature.rms(y=y, hop_length=hop)[0]
     _, beats = librosa.beat.beat_track(y=y, sr=sr, hop_length=hop)
     if len(beats) < 8:  # fallback to fixed 0.5 s grid

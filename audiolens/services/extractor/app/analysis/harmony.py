@@ -61,7 +61,7 @@ def extract_harmony(
     deep_key_fn: Callable[[np.ndarray, int], tuple[int, int, float]] | None = None,
 ) -> dict:
     y_h = librosa.effects.harmonic(y)
-    chroma = librosa.feature.chroma_cqt(y=y_h, sr=sr)
+    chroma = librosa.feature.chroma_cqt(y=y_h, sr=sr, tuning=0.0)
 
     # ---- global key ---------------------------------------------------------
     key, mode, conf = _ks_key(chroma.mean(axis=1))

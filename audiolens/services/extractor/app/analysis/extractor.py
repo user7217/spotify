@@ -168,7 +168,7 @@ class AnalysisExtractor:
         n_frames = int(np.ceil(len(y) / self.hop))
         boundaries = boundaries[boundaries < n_frames]
 
-        chroma = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=self.hop)
+        chroma = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=self.hop, tuning=0.0)
         mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13, hop_length=self.hop)
         rms_db = librosa.amplitude_to_db(
             librosa.feature.rms(y=y, hop_length=self.hop)[0], ref=1.0
@@ -220,7 +220,7 @@ class AnalysisExtractor:
         self, y: np.ndarray, sr: int, segments: list[dict], duration: float
     ) -> list[dict]:
         mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13, hop_length=self.hop)
-        chroma = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=self.hop)
+        chroma = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=self.hop, tuning=0.0)
 
         # combined recurrence-based segmentation
         feat = np.vstack([librosa.util.normalize(mfcc, axis=1), librosa.util.normalize(chroma, axis=1)])
@@ -244,7 +244,7 @@ class AnalysisExtractor:
 
             sec_tempo, _ = librosa.beat.beat_track(y=y_sec, sr=sr)
             sec_tempo = float(np.atleast_1d(sec_tempo)[0])
-            sec_chroma = librosa.feature.chroma_cqt(y=y_sec, sr=sr).mean(axis=1)
+            sec_chroma = librosa.feature.chroma_cqt(y=y_sec, sr=sr, tuning=0.0).mean(axis=1)
             sec_key = int(np.argmax(sec_chroma))
             sec_loud = float(
                 librosa.amplitude_to_db(librosa.feature.rms(y=y_sec)).mean()
@@ -271,7 +271,7 @@ class AnalysisExtractor:
     # ── harmony (extended) ───────────────────────────────────────────────────
 
     def _harmony(self, y: np.ndarray, sr: int, beat_times: np.ndarray) -> dict:
-        chroma = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=self.hop)
+        chroma = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=self.hop, tuning=0.0)
         beat_frames = librosa.time_to_frames(beat_times, sr=sr, hop_length=self.hop)
         beat_frames = np.clip(beat_frames, 0, chroma.shape[1] - 1)
 

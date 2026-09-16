@@ -155,7 +155,7 @@ class FeatureExtractor:
     # ── key / mode ───────────────────────────────────────────────────────────
 
     def _key_mode(self, y: np.ndarray, sr: int) -> tuple[int, int, float]:
-        chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
+        chroma = librosa.feature.chroma_cqt(y=y, sr=sr, tuning=0.0)
         chroma_mean = chroma.mean(axis=1)
 
         scores = []
